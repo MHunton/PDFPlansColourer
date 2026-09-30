@@ -57,21 +57,11 @@ right-click or double-click a corner to remove it, Delete to remove the room. Ri
 
 Add `?debug` to the URL to outline every PDF text item: if the boxes sit on the text at every zoom, the overlay is aligned.
 
-## Test the production build in Docker
-
-Builds the site and serves `dist/` with nginx, the same way a static host would:
-
-```bash
-docker build -t plan-colour-coder .
-docker run -d --name plan-colour-coder -p 8080:80 plan-colour-coder
-```
-
-Open http://localhost:8080. After code changes: `docker rm -f plan-colour-coder`, then build and run again.
-
 ## Build and deploy
 
 ```bash
 npm run build      # outputs static files to dist/
+npm run preview    # serve dist/ at http://localhost:4173 to check the build
 ```
 
 `dist/` is a plain static site with relative paths. Upload it to any static host or sub-folder:

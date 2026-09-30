@@ -3,3 +3,7 @@ dist
 *.log
 # Drawings (client data): never commit
 *.pdf
+# Local-only tooling
+Dockerfile
+.dockerignore
+.claude/
