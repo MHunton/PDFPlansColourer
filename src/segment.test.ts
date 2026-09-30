@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { bridge, segment } from "./segment.ts";
+import { bridge, segment, squareUp } from "./segment.ts";
 
 // 200x100 px plan: outer walls, a dividing wall at x=100..102 with a 16px doorway (y 40..55).
 // A door hinged at (103,40) swings into the right room: leaf along y=40 to x=119, arc back to (103,56).
@@ -94,4 +94,10 @@ test("bridge ignores door-frame nibs (no false wall across the room)", () => {
   m[7 * W + 10] = m[6 * W + 10] = 1;
   const out = bridge(m, W, H, 8, 3, 4);
   assert.equal(out[3 * W + 10], 0, "nib not joined to the top wall");
+});
+
+test("squareUp: a slanted near-horizontal edge becomes level; real corners and diagonals stay", () => {
+  // rectangle whose bottom edge slants 3px over 46px, plus a genuine 45° corner cut at top right
+  const out = squareUp([0, 0, 36, 0, 46, 10, 46, 43, 0, 40]);
+  assert.deepEqual(out, [0, 0, 36, 0, 46, 10, 46, 41.5, 0, 41.5]);
 });

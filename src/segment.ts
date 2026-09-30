@@ -1,9 +1,10 @@
 // Room segmentation on barrier rasters (1 = wall/line, 0 = open floor). Pure functions; runs in a worker.
 //
-// Two barrier images of the same page:
-//   walls - thick lines only. Door openings are gaps; bridge() closes them along the wall line (up to ~3.3 m,
-//           double doors), so rooms end at their walls and a door swing belongs to the room it swings into.
-//   lines - walls + thin dark lines (door arcs, glazing seal rooms). Used where the walls version fails.
+// Two barrier images of the same page, plus doorway lines found from door symbols (drawn into both):
+//   walls - thick lines only. Openings without a door symbol are gaps; bridge() closes them along the wall line
+//           (2.2 m, then 3.3 m where needed), so rooms end at their walls and doors, and a door swing belongs to
+//           the room it opens into.
+//   lines - walls + thin dark lines (glazing, undetected door arcs). Used where the walls version fails.
 // Conservative: a room is only returned if one version gives it a closed space holding no other label. Shared
 // spaces (open plan, rooms joined by an opening wider than a door) are left for the user to draw.
 
@@ -11,6 +12,8 @@ export interface SegmentInput {
   w: number; h: number;
   walls: Uint8Array; lines: Uint8Array;
   seeds: Float32Array;  // x0,y0,x1,y1,... pixel coords of room labels
+  alt?: Float32Array;   // same layout: a second seed per label (its name), NaN if none
+  doors?: Float32Array; // hx,hy,ex,ey,... doorway lines found from door symbols (hinge to closed end), pixels
   closeR: number;       // px, half the widest door to bridge
   sealR: number;        // px, half the widest external opening (entrances); seals the building to find "outside"
   minArea: number; maxArea: number; // px²
@@ -23,15 +26,20 @@ type Pass = ReturnType<typeof fillAll>;
 
 export function segment(inp: SegmentInput): Room[] {
   const { w, h, seeds, minArea, maxArea } = inp;
+  if (inp.doors) for (const m of [inp.walls, inp.lines]) doorLines(m, w, h, inp.doors);
   const reach = Math.max(3, Math.round(inp.closeR / 2)); // lines version: how far from a label's centre to look for open floor
   // Outside the building is off-limits, or a corridor escapes through its entrance doors into the site around it.
   const out = outside(close(inp.walls, w, h, inp.sealR), w, h);
   // Walls version: label must sit on open floor (2px slack). If the closing filled its spot, the space is narrower
   // than a door and searching further could hop over a door line into the neighbour: leave it to the lines version.
-  // closeR ~0.55 m: openings up to 6*closeR (~3.3 m: double doors, part-height partitions), wall ends up to closeR thick.
+  // closeR ~0.55 m: openings up to 4*closeR (~2.2 m), wall ends up to closeR thick. Where that leaves a label sharing
+  // its space, openings up to 6*closeR (~3.3 m: wide double doors, part-height partitions). Wider first would cut
+  // rooms along furniture lines and chop corridors; doors drawn with a swing are closed exactly anyway (doorLines).
   // close(3px) first: walls drawn as two outlines (hatch between) become solid, so wall lengths are measurable.
-  const a = fillAll(or(bridge(close(inp.walls, w, h, 3), w, h, Math.round(inp.closeR * 6), Math.round(inp.closeR * 0.7), Math.round(inp.closeR * 1.2)), out), w, h, seeds, maxArea, 2);
-  const b = fillAll(or(dilate(inp.lines, w, h, 1), out), w, h, seeds, maxArea, reach); // 1px: seal hairline drafting gaps
+  const solid = close(inp.walls, w, h, 3), wall = Math.round(inp.closeR * 0.7), run = Math.round(inp.closeR * 1.2);
+  const a = fillAll(or(bridge(solid, w, h, 4 * inp.closeR, wall, run), out), w, h, seeds, maxArea, 2, inp.alt);
+  const a2 = fillAll(or(bridge(solid, w, h, 6 * inp.closeR, wall, run), out), w, h, seeds, maxArea, 2, inp.alt);
+  const b = fillAll(or(dilate(inp.lines, w, h, 1), out), w, h, seeds, maxArea, reach, inp.alt); // 1px: seal hairline drafting gaps
   // Wide-door version: gaps up to ~4*closeR bridged (double doors). Too coarse to trace from (it fills narrow rooms),
   // but it bounds a lines-version room: growing into it restores the door-swing areas the arcs cut out.
   const growR = 2 * inp.closeR;
@@ -39,7 +47,7 @@ export function segment(inp: SegmentInput): Room[] {
 
   const ok = (r: Region | undefined) => !!r && !r.bad && r.area >= minArea;
   const labelsIn = (pass: Pass) => { const c = new Map<number, number>(); for (const id of pass.seedRegion) c.set(id, (c.get(id) ?? 0) + 1); return c; };
-  const ca = labelsIn(a), cb = labelsIn(b), cc = labelsIn(c);
+  const ca = labelsIn(a), ca2 = labelsIn(a2), cb = labelsIn(b), cc = labelsIn(c);
   const own = (pass: Pass, counts: Map<number, number>, k: number) => {
     const id = pass.seedRegion[k];
     return ok(pass.info[id]) && counts.get(id) === 1 ? pass.info[id] : null;
@@ -47,20 +55,32 @@ export function segment(inp: SegmentInput): Room[] {
   // Walls version (rooms end at wall lines and doorways); lines version only where that gives no room of its own.
   const parts: { pass: Pass; id: number; k: number; grow?: Grow }[] = [];
   for (let k = 0; k < seeds.length / 2; k++) {
-    const A = own(a, ca, k), B = own(b, cb, k);
-    if (B && !A) {
+    const pa = own(a, ca, k) ? a : own(a2, ca2, k) ? a2 : null, B = own(b, cb, k);
+    if (pa) parts.push({ pass: pa, id: pa.seedRegion[k], k });
+    else if (B) {
       const grow = own(c, cc, k) ? { regions: c.regions, id: c.seedRegion[k], dist: growR } : undefined;
       parts.push({ pass: b, id: b.seedRegion[k], k, grow });
-    } else if (A) parts.push({ pass: a, id: a.seedRegion[k], k });
+    }
   }
   // Smallest first, each claiming its floor: rooms taken from the two versions can't overlap.
   parts.sort((p, q) => p.pass.info[p.id].area - q.pass.info[q.id].area);
   const claimed = new Uint8Array(w * h), rooms: Room[] = [];
   for (const { pass, id, k, grow } of parts) {
-    const points = trace(pass.regions, w, h, pass.info[id], id, claimed, seeds[2 * k], seeds[2 * k + 1], grow);
+    const points = trace(pass.regions, w, h, pass.info[id], id, claimed, seeds[2 * k], seeds[2 * k + 1], Math.round(0.7 * inp.closeR), grow);
     if (points.length >= 6) rooms.push({ seeds: [k], points });
   }
   return rooms;
+}
+
+/** Draw each doorway as a 3px barrier, 2px past both ends so it meets the jambs. */
+function doorLines(m: Uint8Array, w: number, h: number, d: Float32Array) {
+  for (let k = 0; k < d.length; k += 4) {
+    const L = Math.hypot(d[k + 2] - d[k], d[k + 3] - d[k + 1]) || 1, ux = (d[k + 2] - d[k]) / L, uy = (d[k + 3] - d[k + 1]) / L;
+    for (let t = -2; t <= L + 2; t += 0.5) {
+      const x = Math.round(d[k] + ux * t), y = Math.round(d[k + 1] + uy * t);
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (x + dx >= 0 && y + dy >= 0 && x + dx < w && y + dy < h) m[(y + dy) * w + x + dx] = 1;
+    }
+  }
 }
 
 // ---- morphology (square structuring element, separable running counts: O(pixels) for any radius) ----
@@ -151,7 +171,7 @@ function outside(mask: Uint8Array, w: number, h: number): Uint8Array {
 
 // ---- flood fill from every seed ----
 
-function fillAll(mask: Uint8Array, w: number, h: number, seeds: Float32Array, maxArea: number, reach: number) {
+function fillAll(mask: Uint8Array, w: number, h: number, seeds: Float32Array, maxArea: number, reach: number, alt?: Float32Array) {
   const regions = new Int32Array(w * h); // 0 = unassigned
   const info: Region[] = [{ area: 0, x0: 0, y0: 0, x1: 0, y1: 0, bad: true }];
   const seedRegion = new Int32Array(seeds.length / 2);
@@ -162,6 +182,23 @@ function fillAll(mask: Uint8Array, w: number, h: number, seeds: Float32Array, ma
     const id = info.length;
     info.push(flood(mask, regions, w, h, p, id, maxArea));
     seedRegion[k] = id;
+  }
+  // A label whose number shares a space (or sits on a wall) moves to its name's space, if no other label is there.
+  if (alt) {
+    const count = new Map<number, number>();
+    for (const id of seedRegion) if (id) count.set(id, (count.get(id) ?? 0) + 1);
+    for (let k = 0; k < seedRegion.length; k++) {
+      const id = seedRegion[k];
+      if ((id && count.get(id)! < 2) || Number.isNaN(alt[2 * k])) continue;
+      const p = nearFree(mask, w, h, Math.round(alt[2 * k]), Math.round(alt[2 * k + 1]), reach);
+      if (p < 0) continue;
+      let to = regions[p];
+      if (!to) { to = info.length; info.push(flood(mask, regions, w, h, p, to, maxArea)); }
+      if (to === id || count.get(to)) continue;
+      if (id) count.set(id, count.get(id)! - 1);
+      seedRegion[k] = to;
+      count.set(to, 1);
+    }
   }
   return { regions, info, seedRegion };
 }
@@ -225,9 +262,9 @@ interface Grow { regions: Int32Array; id: number; dist: number }
  * ponytail: a room fully inside another is a hole in it, but shapes have no holes: the outer one's outline still
  * covers the inner room (drawn underneath it). Add polygon holes if nested rooms turn out common.
  */
-function trace(regions: Int32Array, w: number, h: number, r: Region, id: number, claimed: Uint8Array, sx: number, sy: number, grow?: Grow): number[] {
-  // Work window: the region's box (+ growth distance), with a 1px padding ring.
-  const pad = grow?.dist ?? 0;
+function trace(regions: Int32Array, w: number, h: number, r: Region, id: number, claimed: Uint8Array, sx: number, sy: number, notch: number, grow?: Grow): number[] {
+  // Work window: the region's box (+ growth distance, + room for the notch closing), with a 1px padding ring.
+  const pad = Math.max(grow?.dist ?? 0, notch + 1);
   const X0 = Math.max(0, r.x0 - pad), Y0 = Math.max(0, r.y0 - pad), X1 = Math.min(w - 1, r.x1 + pad), Y1 = Math.min(h - 1, r.y1 + pad);
   const lw = X1 - X0 + 3, lh = Y1 - Y0 + 3, n = lw * lh;
   const g = (i: number) => (((i / lw) | 0) - 1 + Y0) * w + (i % lw) - 1 + X0; // interior cells only
@@ -273,8 +310,15 @@ function trace(regions: Int32Array, w: number, h: number, r: Region, id: number,
     }
   }
   for (let i = 0; i < n; i++) if (!comp[i] && !out[i] && !claimed[g(i)]) comp[i] = 1;
+  // Small intrusions (wall-mounted boxes, door-frame nibs, call points) up to 2*notch wide: part of the room.
+  const shut = close(comp, lw, lh, notch);
+  for (let i = 0; i < n; i++) if (shut[i] && !comp[i] && !claimed[g(i)] && i % lw && i % lw < lw - 1 && i >= lw && i < n - lw) comp[i] = 1;
+  const keep = new Uint8Array(n); // only what stays joined to the room (claims can cut off bits of the closing)
+  keep[start] = 1; stack.push(start);
+  while (stack.length) { const i = stack.pop()!; for (const d of N4) { const j = i + d; if (comp[j] && !keep[j]) { keep[j] = 1; stack.push(j); } } }
+  comp.set(keep);
   for (let i = 0; i < n; i++) if (comp[i]) claimed[g(i)] = 1;
-  return simplify(moore(comp, lw, lh, X0 - 1, Y0 - 1), 2); // eps ~1.4 pt at A0 detection resolution
+  return squareUp(simplify(moore(comp, lw, lh, X0 - 1, Y0 - 1), 2)); // eps ~1.4 pt at A0 detection resolution
 }
 
 /** Moore-neighbour trace of the outer boundary of a padded mask; (ox, oy) = global position of mask cell 0. */
@@ -300,6 +344,27 @@ function moore(inside: Uint8Array, lw: number, lh: number, ox: number, oy: numbe
     if (!moved || (cx === sx && cy === sy)) break;
   }
   return pts;
+}
+
+/**
+ * Snap edges within 3 px (and 1:10) of horizontal/vertical onto the axis, at their mean line. Simplifying turns
+ * small steps (a wall face next to a bridged doorway) into long slants; rooms are drawn square.
+ */
+export function squareUp(p: number[]): number[] {
+  const n = p.length / 2, q = p.slice();
+  for (let i = 0; i < n; i++) {
+    const j = (i + 1) % n, dx = q[2 * j] - q[2 * i], dy = q[2 * j + 1] - q[2 * i + 1];
+    for (const [a, d, o] of [[1, dy, dx], [0, dx, dy]]) { // a = axis to equalise (y for near-horizontal)
+      if (Math.abs(d) > 0 && Math.abs(d) <= 3 && Math.abs(d) <= 0.1 * Math.abs(o)) q[2 * i + a] = q[2 * j + a] = (q[2 * i + a] + q[2 * j + a]) / 2;
+    }
+  }
+  const out: number[] = []; // drop repeated and collinear corners
+  for (let i = 0; i < n; i++) {
+    const a = (i + n - 1) % n, b = (i + 1) % n;
+    const cr = (q[2 * i] - q[2 * a]) * (q[2 * b + 1] - q[2 * i + 1]) - (q[2 * i + 1] - q[2 * a + 1]) * (q[2 * b] - q[2 * i]);
+    if (Math.abs(cr) > 1e-6) out.push(q[2 * i], q[2 * i + 1]);
+  }
+  return out.length >= 6 ? out : q;
 }
 
 /** Douglas-Peucker on a closed ring (flat coords). */

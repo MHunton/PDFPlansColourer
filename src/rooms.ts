@@ -2,6 +2,7 @@
 // a worker flood-fills from each seed and traces outlines (see segment.ts). Returns polygons in PDF space.
 import { apply, invert, type Mat, type Pt } from "./coords";
 import { OPS, renderRegion, type PDFPageProxy } from "./pdf";
+import { findDoors, type Seg as Line } from "./doors";
 import { drawingScale, roomLabels, type RoomLabel, type TextItem } from "./roomLabels";
 import type { Room, SegmentInput } from "./segment";
 
@@ -31,9 +32,12 @@ export async function detectRooms(page: PDFPageProxy, progress: (pct: number) =>
   progress(80);
 
   const pxPerM = (72 / 0.0254 / (scale ?? 100)) * s; // unknown scale: assume 1:100
-  const seeds = new Float32Array(labels.flatMap((l) => apply(m, l.at).map((v) => v * s - 0.5)));
+  const px = (p: Pt) => apply(m, p).map((v) => v * s - 0.5);
+  const seeds = new Float32Array(labels.flatMap((l) => px(l.at)));
+  const alt = new Float32Array(labels.flatMap((l) => (l.nameAt ? px(l.nameAt) : [NaN, NaN])));
+  const doors = new Float32Array(keep.doors.flatMap((d) => [...px(d.h), ...px(d.e)]));
   const found = await inWorker({
-    w, h, walls, lines, seeds,
+    w, h, walls, lines, seeds, alt, doors,
     closeR: Math.max(1, Math.round(DOOR_HALF_M * pxPerM)),
     sealR: Math.max(2, Math.round(ENTRANCE_HALF_M * pxPerM)),
     minArea: MIN_ROOM_M2 * pxPerM ** 2,
@@ -58,7 +62,7 @@ function inWorker(input: SegmentInput): Promise<Room[]> {
   return new Promise<Room[]>((resolve, reject) => {
     worker.onmessage = (e) => resolve(e.data);
     worker.onerror = (e) => reject(new Error(e.message || "Room detection failed"));
-    worker.postMessage(input, [input.walls.buffer, input.lines.buffer, input.seeds.buffer]);
+    worker.postMessage(input, [input.walls.buffer, input.lines.buffer, input.seeds.buffer, input.doors!.buffer]);
   }).finally(() => worker.terminate());
 }
 
@@ -150,7 +154,7 @@ function tagBoxOps(segs: Seg[], tags: Box[]): Set<number> {
  */
 function operatorFilters(ol: { fnArray: number[]; argsArray: unknown[] }, tags: Box[], ptPerM: number) {
   const n = ol.fnArray.length, walls = new Uint8Array(n).fill(1), lines = new Uint8Array(n).fill(1);
-  const paths: { i: number; weight: number; stroke: number[]; fill: number[]; paint: number; len: number; hatch: boolean; size: number }[] = [];
+  const paths: { i: number; weight: number; stroke: number[]; fill: number[]; paint: number; len: number; hatch: boolean; size: number; width: number; box: number[]; symbol: boolean; lines: Line[] }[] = [];
   const segs: Seg[] = [], lengthByWeight = new Map<number, number>();
   let ctm: Mat = [1, 0, 0, 1, 0, 0], lw = 1, stroke = [0, 0, 0], fill = [0, 0, 0];
   const stack: [Mat, number, number[], number[]][] = [];
@@ -170,11 +174,11 @@ function operatorFilters(ol: { fnArray: number[]; argsArray: unknown[] }, tags: 
     else if (TEXT.has(f) || IMAGES.has(f)) walls[i] = lines[i] = 0;
     else if (f === OPS.constructPath && (STROKES.has(a[0]) || FILLS.has(a[0]))) { // endPath = clipping path: keep
       const weight = Math.round(lw * Math.sqrt(Math.abs(ctm[0] * ctm[3] - ctm[1] * ctm[2])) * 100) / 100;
-      const path = { i, weight, stroke, fill, paint: a[0], len: 0, hatch: false, size: 0 };
+      const path = { i, weight, stroke, fill, paint: a[0], len: 0, hatch: false, size: 0, width: 0, box: [0, 0, 0, 0], symbol: false, lines: [] as Line[] };
       paths.push(path);
       const d = a[1][0] as ArrayLike<number>;
       let len = 0, prev: Pt | null = null, diagonal = 0, straight = 0;
-      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity, closed = false;
       for (let k = 0; k < d.length;) {
         const op = d[k++];
         if (op === 0 || op === 1) {
@@ -184,13 +188,22 @@ function operatorFilters(ol: { fnArray: number[]; argsArray: unknown[] }, tags: 
           if (op === 1 && prev) {
             const dx = Math.abs(p[0] - prev[0]), dy = Math.abs(p[1] - prev[1]), l = Math.hypot(dx, dy);
             len += l;
+            path.lines.push({ i, a: prev, b: p });
             if (l > 10 && dx > 0.3 * l && dy > 0.3 * l) diagonal++; else straight++; // door arcs: many short segments
             if (Math.abs(p[0] - prev[0]) < 0.3 || Math.abs(p[1] - prev[1]) < 0.3) segs.push({ i, x0: prev[0], y0: prev[1], x1: p[0], y1: p[1] });
           }
           prev = p;
-        } else k += op === 2 ? 6 : op === 3 ? 4 : 0; // curves: ignored for length; closePath has no args
+        } else if (op === 2 || op === 3) { // curves: end point counts for the size, not for length
+          const n = op === 2 ? 6 : 4, p = apply(ctm, [d[k + n - 2], d[k + n - 1]]);
+          x0 = Math.min(x0, p[0]); x1 = Math.max(x1, p[0]); y0 = Math.min(y0, p[1]); y1 = Math.max(y1, p[1]);
+          k += n;
+          prev = p;
+        } else closed = true; // closePath
       }
       path.size = Math.max(x1 - x0, y1 - y0) / ptPerM; // m
+      path.width = Math.min(x1 - x0, y1 - y0) / ptPerM;
+      path.box = [x0, y0, x1, y1];
+      path.symbol = closed && path.size < 1;
       if (!STROKES.has(a[0])) continue;
       path.len = len;
       path.hatch = diagonal > 0 && !straight; // only long diagonal strokes: hatching (door arcs are short segments)
@@ -209,13 +222,29 @@ function operatorFilters(ol: { fnArray: number[]; argsArray: unknown[] }, tags: 
   const wallColour = [...lengthByColour].sort((p, q) => q[1] - p[1])[0]?.[0];
   const boxes = tagBoxOps(segs, tags);
 
-  for (const { i, weight, stroke: sc, fill: fc, paint, hatch, size } of paths) {
-    if (boxes.has(i)) { walls[i] = lines[i] = 0; continue; }
+  // Coloured symbols (fire exit signs, call points): the fill and every line drawn within it (border, pictogram).
+  const CELL = 20, signs = new Map<string, number[][]>();
+  const isSign = (p: (typeof paths)[number]) => FILLS.has(p.paint) && lum(p.fill) < 200 && !darkNeutral(p.fill) && p.size >= 0.2 && p.size < 2 && !(p.size >= 1.2 && p.width <= 0.35);
+  for (const p of paths) if (isSign(p)) {
+    const [x0, y0, x1, y1] = p.box;
+    for (let x = Math.floor(x0 / CELL); x <= Math.floor(x1 / CELL); x++) for (let y = Math.floor(y0 / CELL); y <= Math.floor(y1 / CELL); y++) (signs.get(`${x},${y}`) ?? signs.set(`${x},${y}`, []).get(`${x},${y}`)!).push(p.box);
+  }
+  const inSign = ([x0, y0, x1, y1]: number[]) => (signs.get(`${Math.floor(x0 / CELL)},${Math.floor(y0 / CELL)}`) ?? [])
+    .some((b) => x0 >= b[0] - 1 && y0 >= b[1] - 1 && x1 <= b[2] + 1 && y1 <= b[3] + 1);
+
+  for (const { i, weight, stroke: sc, fill: fc, paint, hatch, size, width, box, symbol } of paths) {
+    if (boxes.has(i) || inSign(box)) { walls[i] = lines[i] = 0; continue; }
     const thick = weight >= thinPt;
     // light fills are room tints/masks; small coloured or tiny ones are symbols. Neither is a wall.
-    const solid = FILLS.has(paint) && lum(fc) < 200 && size >= 0.35 && (size >= 1.2 || darkNeutral(fc));
+    // coloured fills only count when wall-shaped (long, at most wall-thick): fire exit signs are fat green boxes
+    const solid = FILLS.has(paint) && lum(fc) < 200 && size >= 0.35 && (darkNeutral(fc) || size >= 1.2 && width <= 0.35);
     walls[i] = STROKES.has(paint) && thick && (darkNeutral(sc) || String(sc) === wallColour) || solid ? 1 : 0;
-    lines[i] = STROKES.has(paint) && (thick || darkNeutral(sc) && !hatch) || solid ? 1 : 0;
+    // small closed thin outlines (circled letters, sanitaryware, furniture) are symbols, not room edges
+    lines[i] = STROKES.has(paint) && (thick || darkNeutral(sc) && !hatch && !symbol) || solid ? 1 : 0;
   }
-  return { walls: (i: number) => walls[i] === 1, lines: (i: number) => lines[i] === 1 };
+  // Door symbols: their arcs and leaves aren't barriers; the doorway line (hinge to closed end) is drawn instead.
+  const thin = paths.filter((p) => STROKES.has(p.paint) && p.weight < thinPt && darkNeutral(p.stroke) && !p.hatch).flatMap((p) => p.lines);
+  const { doors, ops } = findDoors(thin, 0.4 * ptPerM, 1.6 * ptPerM);
+  for (const i of ops) lines[i] = 0;
+  return { walls: (i: number) => walls[i] === 1, lines: (i: number) => lines[i] === 1, doors };
 }

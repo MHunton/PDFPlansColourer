@@ -19,10 +19,11 @@ Try `sample-plan.pdf` (A0, rotated) and `sample-multipage.pdf` (3 pages).
 **Automatic rooms:** when a floor is added, rooms are found from the room numbers in the drawing text
 (e.g. "4.3.030") and traced as editable outlines, each carrying its number and name. Click a room to select it.
 Detection is deliberately conservative: only spaces closed off by walls/doors and holding a single room label are
-traced. Doorways and openings up to ~3.3 m are closed along the wall line (only between wall ends, so door-frame
-nibs and wall bumps don't cut a room in two), so rooms come out as wall-to-wall shapes with their door swings.
-Small symbols inside a room (fire exit signs, call points, sockets, room tags) are ignored, so they don't punch holes
-in it or split it. Open-plan areas shared by several labels are left for you to draw.
+traced. Door symbols (swing arc + leaf) are recognised from the drawing's lines, so each doorway is closed exactly
+where the door sits and the swing belongs to the room it opens into. Other openings up to ~2.2 m (~3.3 m where
+needed) are closed along the wall line. Rooms come out as square, wall-to-wall shapes: fire exit signs, call points,
+circled symbols, sanitaryware and small wall-mounted boxes don't cut notches or split rooms. If a room number sits
+on a wall, the room name's position is used instead. Open-plan areas shared by several labels are left for you to draw.
 Labelled rooms that could not be traced show as pulsing red markers; the *Missing* button jumps to each.
 Tap a marker (or choose *Draw room*) and draw the room around it: it takes the marker's number and name (all of them,
 joined with "+", if you draw one room around several). A marker inside any room counts as placed.
@@ -86,6 +87,7 @@ Current Chrome, Edge, Firefox, Safari (desktop and iPad). Uses the pdf.js legacy
 - `src/shapes.ts` – room shape model and per-floor undo/redo
 - `src/editor.ts` – Select and Draw room tools, room/handle rendering
 - `src/rooms.ts` – automatic room detection: room labels as seeds, filtered barrier renders, worker call
+- `src/doors.ts` – door symbols (arc + leaf) to doorway lines
 - `src/roomLabels.ts` – room numbers/names and drawing scale from PDF text
 - `src/segment.ts`, `src/segment.worker.ts` – flood fill, doorway bridging, outline tracing
 - `src/key.ts` – colour key panel: lighting types, painting, opacity, selected-room fields
