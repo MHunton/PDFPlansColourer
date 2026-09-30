@@ -37,7 +37,9 @@ export function segment(inp: SegmentInput): Room[] {
   // rooms along furniture lines and chop corridors; doors drawn with a swing are closed exactly anyway (doorLines).
   // close(3px) first: walls drawn as two outlines (hatch between) become solid, so wall lengths are measurable.
   const solid = close(inp.walls, w, h, 3), wall = Math.round(inp.closeR * 0.7), run = Math.round(inp.closeR * 1.2);
-  const a = fillAll(or(bridge(solid, w, h, 4 * inp.closeR, wall, run), out), w, h, seeds, maxArea, 2, inp.alt);
+  const bridged = bridge(solid, w, h, 4 * inp.closeR, wall, run);
+  const maskA = or(bridged.slice(), out), a = fillAll(maskA, w, h, seeds, maxArea, 2, inp.alt);
+  adopt(a, maskA, bridged, solid, w, h, wall + 2, 25 * (inp.closeR / 0.55) ** 2);
   const a2 = fillAll(or(bridge(solid, w, h, 6 * inp.closeR, wall, run), out), w, h, seeds, maxArea, 2, inp.alt);
   const b = fillAll(or(dilate(inp.lines, w, h, 1), out), w, h, seeds, maxArea, reach, inp.alt); // 1px: seal hairline drafting gaps
   // Wide-door version: gaps up to ~4*closeR bridged (double doors). Too coarse to trace from (it fills narrow rooms),
@@ -81,6 +83,42 @@ function doorLines(m: Uint8Array, w: number, h: number, d: Float32Array) {
       for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (x + dx >= 0 && y + dy >= 0 && x + dx < w && y + dy < h) m[(y + dy) * w + x + dx] = 1;
     }
   }
+}
+
+/**
+ * A bridged opening can cut the end off a corridor or room, leaving a piece with no label (nobody traces it). Such
+ * a piece joins the labelled region it shares the most bridged opening with, if it's small (<= maxArea and no
+ * bigger than that region) and that neighbour clearly dominates. `reach`: widest bridge band to look across.
+ */
+function adopt(pass: Pass, mask: Uint8Array, bridged: Uint8Array, solid: Uint8Array, w: number, h: number, reach: number, maxArea: number) {
+  const { regions, info, seedRegion } = pass, labels = new Map<number, number>();
+  for (const id of seedRegion) labels.set(id, (labels.get(id) ?? 0) + 1);
+  for (let p = 0; p < w * h; p++) if (!mask[p] && !regions[p]) info.push(flood(mask, regions, w, h, p, info.length, maxArea)); // unlabelled spaces
+  const touch = new Map<number, Map<number, number[]>>(); // orphan -> neighbour -> bridge pixels between them
+  for (let p = 0; p < w * h; p++) {
+    if (!bridged[p] || solid[p]) continue;
+    for (const d of [1, w]) { // across the band: row and column
+      const side = (dir: number) => { let q = p; for (let k = 0; k <= reach; k++) { q += dir; if (q < 0 || q >= w * h) return 0; if (!bridged[q]) return regions[q]; } return 0; };
+      const r1 = side(-d), r2 = side(d);
+      if (!r1 || !r2 || r1 === r2) continue;
+      for (const [o, n] of [[r1, r2], [r2, r1]]) {
+        if (labels.has(o) || labels.get(n) !== 1 || info[o].bad || info[n].bad || info[o].area > maxArea || info[o].area > info[n].area) continue;
+        const m = touch.get(o) ?? touch.set(o, new Map()).get(o)!;
+        (m.get(n) ?? m.set(n, []).get(n)!).push(p);
+      }
+    }
+  }
+  const to = new Map<number, number>();
+  for (const [o, m] of touch) {
+    const [best, second] = [...m].sort((x, y) => y[1].length - x[1].length);
+    if (second && second[1].length * 2 > best[1].length) continue; // no clear owner
+    const [n, band] = best, r = info[n], q = info[o];
+    to.set(o, n);
+    for (const p of band) regions[p] = n;
+    r.area += q.area + band.length;
+    r.x0 = Math.min(r.x0, q.x0); r.y0 = Math.min(r.y0, q.y0); r.x1 = Math.max(r.x1, q.x1); r.y1 = Math.max(r.y1, q.y1);
+  }
+  if (to.size) for (let p = 0; p < w * h; p++) { const n = to.get(regions[p]); if (n) regions[p] = n; }
 }
 
 // ---- morphology (square structuring element, separable running counts: O(pixels) for any radius) ----

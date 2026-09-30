@@ -101,3 +101,14 @@ test("squareUp: a slanted near-horizontal edge becomes level; real corners and d
   const out = squareUp([0, 0, 36, 0, 46, 10, 46, 43, 0, 40]);
   assert.deepEqual(out, [0, 0, 36, 0, 46, 10, 46, 41.5, 0, 41.5]);
 });
+
+test("a bridged opening doesn't leave the unlabelled end of a corridor behind", () => {
+  // 56x96 corridor; two wall stubs at y=40 leave a 16px opening that gets bridged; the label is below it.
+  const O = 50, W = 60 + 2 * O, H = 100 + 2 * O, walls = new Uint8Array(W * H);
+  const rect = (x0: number, y0: number, x1: number, y1: number) => { for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) walls[(y + O) * W + x + O] = 1; };
+  rect(0, 0, 59, 1); rect(0, 98, 59, 99); rect(0, 0, 1, 99); rect(58, 0, 59, 99);
+  rect(2, 40, 21, 41); rect(38, 40, 57, 41);
+  const rooms = segment({ w: W, h: H, walls, lines: walls.slice(), seeds: new Float32Array([30 + O, 70 + O]), closeR: 6, sealR: 30, minArea: 20, maxArea: 20000 });
+  assert.equal(rooms.length, 1);
+  assert.ok(area(rooms[0].points) > 56 * 90, `whole corridor: ${area(rooms[0].points)}`);
+});

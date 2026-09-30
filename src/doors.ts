@@ -92,6 +92,7 @@ export function findDoors(segs: Seg[], minR: number, maxR: number): { doors: Doo
   // One swing can be drawn in pieces (gaps where other lines cross it): merge arcs sharing centre and radius.
   const angle = (a: Pt, b: Pt) => Math.abs(Math.atan2(cross(a, b), dot(a, b)));
   const taken = new Uint8Array(pieces.length);
+  const swings: { c: Pt; e1: Pt; e2: Pt; tip: Pt; pick: string; leaf: Seg[]; idx: number[] }[] = [];
   pieces.forEach((a0, n) => {
     if (taken[n]) return;
     // short pieces fit loosely (coordinates are rounded): generous match, then refit on all the points
@@ -113,9 +114,8 @@ export function findDoors(segs: Seg[], minR: number, maxR: number): { doors: Doo
     const out = (s: Seg) => (len(sub(s.a, c)) > len(sub(s.b, c)) ? sub(s.a, c) : sub(s.b, c));
     const leaf = near(c, 0.15 * r).filter((s) => [[s.a, s.b], [s.b, s.a]].some(([x, y]) => len(sub(x, c)) < 0.15 * r && Math.abs(len(sub(y, c)) - r) < 0.15 * r)
       && angle(out(s), u) < sweep + 0.2 && angle(out(s), v) < sweep + 0.2);
-    if (!leaf.length) return;
-    // closed door is square to the open leaf; a leaf half way round a ~180° swing is centre-hung (doorway spans both
-    // ends). Lines vote (a thin-rectangle leaf has two sides): a lone threshold line can't outvote it.
+    // closed door is square to the open leaf; a leaf half way round a ~180° swing is a double-acting door drawn
+    // closed (doorway: hinge to leaf tip). Lines vote (a thin-rectangle leaf has two sides): a lone threshold line can't outvote it.
     const votes = new Map<string, number>();
     for (const s of leaf) {
       const offU = Math.abs(angle(out(s), u) - Math.PI / 2), offV = Math.abs(angle(out(s), v) - Math.PI / 2);
@@ -123,11 +123,16 @@ export function findDoors(segs: Seg[], minR: number, maxR: number): { doors: Doo
       if (pick) votes.set(pick, (votes.get(pick) ?? 0) + 1);
     }
     const ranked = [...votes].sort((x, y) => y[1] - x[1]);
-    if (!ranked.length || ranked[1]?.[1] === ranked[0][1]) return;
-    const pick = ranked[0][0];
-    doors.push(square(pick === "both" ? { h: e1, e: e2 } : { h: c, e: pick === "u" ? e1 : e2 }));
+    const pick = !ranked.length || ranked[1]?.[1] === ranked[0][1] ? "" : ranked[0][0];
+    const l = leaf.find((s) => Math.abs(angle(out(s), u) - angle(out(s), v)) < 0.35), tip: Pt = l ? [c[0] + out(l)[0], c[1] + out(l)[1]] : e1;
+    swings.push({ c, e1, e2, tip, pick, leaf, idx });
+  });
+
+  for (const { c, e1, e2, tip, pick, leaf, idx } of swings) {
+    if (!pick) continue;
+    doors.push(square({ h: c, e: pick === "both" ? tip : pick === "u" ? e1 : e2 }));
     for (const j of idx) ops.add(short[j].i);
     for (const s of leaf) ops.add(s.i);
-  });
+  }
   return { doors, ops };
 }
