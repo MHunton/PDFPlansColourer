@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Plan Colour-Coder</title>
+</head>
+<body>
+  <header class="toolbar">
+    <strong class="app-name">Plan Colour-Coder</strong>
+    <label class="btn primary">+ Add PDF<input type="file" id="file" accept="application/pdf,.pdf" multiple hidden></label>
+    <span class="group" id="editTools" hidden>
+      <button id="toolSelect" title="Select and edit rooms (V)">Select</button>
+      <button id="toolDraw" title="Draw a room (D)">Draw room</button>
+      <button id="undo" title="Undo (Ctrl+Z)">Undo</button>
+      <button id="redo" title="Redo (Ctrl+Y)">Redo</button>
+      <button id="deleteShape" title="Delete selected room (Delete)">Delete</button>
+      <button id="nextMissing" class="warn-btn" title="Go to the next labelled room that wasn't traced" hidden>Missing</button>
+    </span>
+    <span class="spacer"></span>
+    <button id="togglePanel" aria-controls="panel" title="Show or hide the colour key">Key</button>
+    <span class="group">
+      <button id="zoomOut" aria-label="Zoom out">−</button>
+      <button id="zoomFit">Fit</button>
+      <button id="zoomIn" aria-label="Zoom in">+</button>
+    </span>
+  </header>
+  <nav class="tabs" id="tabs" hidden>
+    <span id="tabList" role="tablist" aria-label="Floors"></span>
+    <button id="editFloors" class="tab-edit">✎ Floors</button>
+  </nav>
+  <div class="work">
+  <main id="viewer">
+    <div id="hint" class="hint"></div>
+    <!-- floating, not in the toolbar: showing them there wrapped the toolbar and shifted the plan mid-drawing -->
+    <div class="float-actions" id="drawGroup" hidden>
+      <button id="finishShape" class="primary" title="Close the room (Enter)">Finish room</button>
+      <button id="cancelShape" title="Discard this room (Esc)">Cancel</button>
+    </div>
+    <div id="empty">
+      <p>Add the site plan PDFs to get started.<br>You can add several at once: each page becomes a floor.</p>
+      <div id="resume" class="resume" hidden>
+        <strong>Continue where you left off?</strong>
+        <span id="resumeText" class="muted"></span>
+        <button id="resumeBtn" class="primary">Resume last session</button>
+        <span class="muted">Adding a PDF instead starts a new project and replaces it.</span>
+      </div>
+      <label class="btn primary">+ Add PDF<input type="file" accept="application/pdf,.pdf" multiple hidden></label>
+      <p class="muted">Or drop PDFs here (including one exported from this app, to carry on editing).<br>Files stay on this device. Nothing is uploaded.</p>
+    </div>
+  </main>
+  <aside id="panel" class="panel">
+    <section class="find">
+      <input type="search" id="search" placeholder="Find room: number, name or notes (Ctrl+F)" aria-label="Find room" autocomplete="off">
+      <ul id="results" class="results"></ul>
+    </section>
+    <section>
+      <h2>Colour key</h2>
+      <label class="opacity">Fill opacity <input type="range" id="opacity" min="10" max="90" step="5" value="35"> <span id="opacityVal">35%</span></label>
+      <label class="cat none"><input type="radio" name="brush" id="brushNone" checked> Select only</label>
+      <ul id="categories" class="cats"></ul>
+      <p id="keyEmpty" class="muted">Add a lighting type for each kind of fitting, e.g. LED panel, downlight, emergency.</p>
+      <button id="addCategory" class="primary">+ Add lighting type</button>
+      <p class="muted">Tick a type, then tap rooms to colour them.</p>
+    </section>
+    <section id="roomPanel" hidden>
+      <h2>Selected room</h2>
+      <label>Room number <input id="roomNo" autocomplete="off"></label>
+      <p id="roomDup" class="warn" hidden>Another room on this floor has this number.</p>
+      <label>Name <input id="roomName" autocomplete="off"></label>
+      <label>Lighting type <select id="roomCat"></select></label>
+      <label>Notes <textarea id="roomNotes" rows="3" placeholder="e.g. fittings to check, access, survey date"></textarea></label>
+    </section>
+    <section id="exportPanel" hidden>
+      <h2>Save &amp; export</h2>
+      <label class="check"><input type="checkbox" id="showLegend" checked> Show key on plan (drag to move, corner to resize)</label>
+      <button id="exportPdf" class="primary">Export PDF (all floors)</button>
+      <button id="exportCsv">Room list (CSV)</button>
+      <p class="muted">Your work is autosaved in this browser. The exported PDF carries the editable project too: open it with + Add PDF on any computer to carry on.</p>
+    </section>
+  </aside>
+  </div>
+  <footer class="status"><span id="msg"></span><span id="saved"></span><span id="cursor"></span><span id="zoomPct"></span></footer>
+
+  <dialog id="floorDialog">
+    <form method="dialog">
+      <h2>Floors</h2>
+      <p class="muted">Name each floor. Untick pages you don't need, such as cover sheets. Floors are sorted from the lowest level up.</p>
+      <ol class="floor-rows"></ol>
+      <div class="actions">
+        <button value="cancel" formnovalidate>Cancel</button>
+        <button value="ok" class="primary">Done</button>
+      </div>
+    </form>
+  </dialog>
+  <datalist id="floorNames">
+    <option>Basement</option><option>Lower ground floor</option><option>Ground floor</option>
+    <option>Upper ground floor</option><option>Mezzanine</option><option>First floor</option>
+    <option>Second floor</option><option>Third floor</option><option>Fourth floor</option>
+    <option>Fifth floor</option><option>Sixth floor</option><option>Seventh floor</option>
+    <option>Eighth floor</option><option>Ninth floor</option><option>Tenth floor</option><option>Roof</option>
+  </datalist>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

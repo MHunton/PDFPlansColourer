@@ -1,0 +1,5 @@
+node_modules
+dist
+*.log
+# Drawings (client data): never commit
+*.pdf
