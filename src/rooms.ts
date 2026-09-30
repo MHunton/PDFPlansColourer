@@ -225,12 +225,14 @@ function operatorFilters(ol: { fnArray: number[]; argsArray: unknown[] }, tags: 
   // Coloured symbols (fire exit signs, call points): the fill and every line drawn within it (border, pictogram).
   const CELL = 20, signs = new Map<string, number[][]>();
   const isSign = (p: (typeof paths)[number]) => FILLS.has(p.paint) && lum(p.fill) < 200 && !darkNeutral(p.fill) && p.size >= 0.2 && p.size < 2 && !(p.size >= 1.2 && p.width <= 0.35);
+  // A small symbol's frame can be bigger than its coloured part (call point: red half, white half): half its size of slack.
   for (const p of paths) if (isSign(p)) {
-    const [x0, y0, x1, y1] = p.box;
-    for (let x = Math.floor(x0 / CELL); x <= Math.floor(x1 / CELL); x++) for (let y = Math.floor(y0 / CELL); y <= Math.floor(y1 / CELL); y++) (signs.get(`${x},${y}`) ?? signs.set(`${x},${y}`, []).get(`${x},${y}`)!).push(p.box);
+    const m = p.size < 0.6 ? 0.5 * Math.max(p.box[2] - p.box[0], p.box[3] - p.box[1]) : 1; // big signs: their own box
+    const [x0, y0, x1, y1] = [p.box[0] - m, p.box[1] - m, p.box[2] + m, p.box[3] + m];
+    for (let x = Math.floor(x0 / CELL); x <= Math.floor(x1 / CELL); x++) for (let y = Math.floor(y0 / CELL); y <= Math.floor(y1 / CELL); y++) (signs.get(`${x},${y}`) ?? signs.set(`${x},${y}`, []).get(`${x},${y}`)!).push([x0, y0, x1, y1]);
   }
   const inSign = ([x0, y0, x1, y1]: number[]) => (signs.get(`${Math.floor(x0 / CELL)},${Math.floor(y0 / CELL)}`) ?? [])
-    .some((b) => x0 >= b[0] - 1 && y0 >= b[1] - 1 && x1 <= b[2] + 1 && y1 <= b[3] + 1);
+    .some((b) => x0 >= b[0] && y0 >= b[1] && x1 <= b[2] && y1 <= b[3]);
 
   for (const { i, weight, stroke: sc, fill: fc, paint, hatch, size, width, box, symbol } of paths) {
     if (boxes.has(i) || inSign(box)) { walls[i] = lines[i] = 0; continue; }
