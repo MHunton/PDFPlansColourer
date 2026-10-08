@@ -23,19 +23,18 @@ const yieldThen = (fn: () => void) => { queue.push(fn); channel.port2.postMessag
 
 /**
  * Render view-space rect (x, y, w, h) of `page` at `scale` device px per pt into `canvas`. Resolves false if cancelled.
- * `keep(i)` = false skips operator i of the page's display operator list (used by room detection).
+ * `rotation`: degrees clockwise, absolute like pdf.js (default: the page's own).
  */
 export function renderRegion(
   page: PDFPageProxy, canvas: HTMLCanvasElement, scale: number,
-  x: number, y: number, w: number, h: number, keep?: (i: number) => boolean,
+  x: number, y: number, w: number, h: number, rotation = page.rotate,
 ): { task: RenderTask; done: Promise<boolean> } {
   canvas.width = Math.ceil(w * scale);
   canvas.height = Math.ceil(h * scale);
   const task = page.render({
     canvas,
-    viewport: page.getViewport({ scale }),
+    viewport: page.getViewport({ scale, rotation }),
     transform: [1, 0, 0, 1, -x * scale, -y * scale],
-    operationsFilter: keep,
   });
   // Private field (pdfjs-dist pinned in package.json). If a pdf.js upgrade renames it, rendering still works, just
   // rAF-paced again. onContinue alone isn't enough: pdf.js hands it a callback that itself waits for rAF.

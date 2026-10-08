@@ -7,7 +7,7 @@ export const PROJECT_ATTACHMENT = "plan-colour-coder-project.json";
 
 export interface ProjectFloor {
   name: string; source: number; page: number; shapes: Shape[];
-  labels?: RoomLabel[]; scale?: number | null; legend?: LegendState;
+  labels?: RoomLabel[]; scale?: number | null; legend?: LegendState; rotation?: number;
 }
 export interface ProjectFile {
   app: "plan-colour-coder"; version: 1;

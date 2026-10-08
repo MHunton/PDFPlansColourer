@@ -9,6 +9,7 @@ export interface ExportFloor {
   bytes: Uint8Array;  // original source PDF
   page: number;       // 1-based page in it
   pdfToView: Mat;     // pdf.js viewport transform at scale 1 (rotation applied)
+  rotation: number;   // degrees clockwise the plan is turned in the app, on top of the page's own
   shapes: Shape[];
   legend: LegendState | null;
 }
@@ -27,6 +28,7 @@ export async function exportPdf(floors: ExportFloor[], categories: Category[], o
     if (!src) sources.set(f.bytes, (src = await PDFDocument.load(f.bytes, { ignoreEncryption: true })));
     const [page] = await out.copyPages(src, [f.page - 1]);
     out.addPage(page);
+    if (f.rotation) page.setRotation(degrees((page.getRotation().angle + f.rotation) % 360)); // as seen in the app
 
     for (const s of f.shapes) {
       const cat = categories.find((c) => c.id === s.categoryId);

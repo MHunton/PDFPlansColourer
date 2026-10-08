@@ -7,7 +7,7 @@ const FLOOR_RE = new RegExp(
   "gi",
 );
 
-/** Most frequent floor phrase in the drawing text, else in the file name, else "". */
+/** Most frequent floor phrase in the drawing text, else in the file name (also "L4" there), else "". */
 export function guessFloorName(pageText: string, fileName = ""): string {
   for (const text of [pageText, fileName.replace(/\.pdf$/i, "").replace(/[_.-]+/g, " ")]) {
     const counts = new Map<string, number>();
@@ -17,7 +17,8 @@ export function guessFloorName(pageText: string, fileName = ""): string {
     }
     if (counts.size) return [...counts].sort((a, b) => b[1] - a[1])[0][0];
   }
-  return "";
+  const short = fileName.match(/(?:^|[\s_.-])L(\d{1,2})(?=$|[\s_.-])/i); // "Phase 2 L4.pdf"
+  return short ? `Level ${Number(short[1])}` : "";
 }
 
 const cap = (s: string) => s[0].toUpperCase() + s.slice(1);

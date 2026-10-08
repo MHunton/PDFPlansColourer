@@ -29,7 +29,9 @@ export function segment(inp: SegmentInput): Room[] {
   if (inp.doors) for (const m of [inp.walls, inp.lines]) doorLines(m, w, h, inp.doors);
   const reach = Math.max(3, Math.round(inp.closeR / 2)); // lines version: how far from a label's centre to look for open floor
   // Outside the building is off-limits, or a corridor escapes through its entrance doors into the site around it.
-  const out = outside(close(inp.walls, w, h, inp.sealR), w, h);
+  // Sealed on the lines version: some wings draw their walls as thin as detail lines, so the walls version alone
+  // would leave them open to the outside.
+  const out = outside(close(inp.lines, w, h, inp.sealR), w, h);
   // Walls version: label must sit on open floor (2px slack). If the closing filled its spot, the space is narrower
   // than a door and searching further could hop over a door line into the neighbour: leave it to the lines version.
   // closeR ~0.55 m: openings up to 4*closeR (~2.2 m), wall ends up to closeR thick. Where that leaves a label sharing

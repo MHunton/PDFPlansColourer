@@ -47,6 +47,7 @@ export class Viewer {
   private base = document.createElement("canvas");
   private detail: HTMLCanvasElement | null = null;
   private page: PDFPageProxy | null = null;
+  private rotation = 0; // degrees clockwise, absolute (page's own + the floor's)
   private baseScale = 1;
   private minZoom = 0.01;
   private needsFit = false;
@@ -81,10 +82,12 @@ export class Viewer {
     }).observe(el);
   }
 
-  async setPage(page: PDFPageProxy): Promise<void> {
+  /** Show `page` turned a further `rotate` degrees clockwise (multiple of 90). */
+  async setPage(page: PDFPageProxy, rotate = 0): Promise<void> {
     this.clear();
     this.page = page;
-    const vp = page.getViewport({ scale: 1 });
+    this.rotation = (page.rotate + rotate) % 360;
+    const vp = page.getViewport({ scale: 1, rotation: this.rotation });
     this.pdfToView = vp.transform as Mat;
     this.width = vp.width;
     this.height = vp.height;
@@ -95,7 +98,7 @@ export class Viewer {
     this.fit();
 
     this.baseScale = Math.min(3, BASE_MAX_PX / Math.max(vp.width, vp.height));
-    const { task, done } = renderRegion(page, this.base, this.baseScale, 0, 0, vp.width, vp.height);
+    const { task, done } = renderRegion(page, this.base, this.baseScale, 0, 0, vp.width, vp.height, this.rotation);
     this.baseTask = task;
     await done;
   }
@@ -263,7 +266,7 @@ export class Viewer {
     const canvas = document.createElement("canvas");
     canvas.className = "detail";
     Object.assign(canvas.style, { left: `${x0}px`, top: `${y0}px`, width: `${w}px`, height: `${h}px` });
-    const { task, done } = renderRegion(page, canvas, scale, x0, y0, w, h);
+    const { task, done } = renderRegion(page, canvas, scale, x0, y0, w, h, this.rotation);
     this.detailTask = task;
     if (!(await done) || page !== this.page) return;
     // Swap only when finished, so the old sharp region stays up while the new one renders.

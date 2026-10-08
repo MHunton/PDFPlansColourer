@@ -123,7 +123,7 @@ async function showFloor(floor: Floor) {
   say("Rendering…");
   const page = await floor.src.doc.getPage(floor.page);
   if (current !== floor) return;
-  await viewer.setPage(page);
+  await viewer.setPage(page, floor.rotation);
   if (current !== floor) return;
   floor.legend ??= defaultLegend(viewer.width, viewer.height);
   editor.setFloor(floor);
@@ -219,6 +219,16 @@ $("editFloors").addEventListener("click", () => manageFloors());
 $("zoomIn").addEventListener("click", () => viewer.zoomCentre(1.5));
 $("zoomOut").addEventListener("click", () => viewer.zoomCentre(1 / 1.5));
 $("zoomFit").addEventListener("click", () => viewer.fit());
+// Turn the plan (view only: rooms are stored in PDF space). The key box is placed in view space: start it afresh.
+async function rotate(by: number) {
+  if (!current) return;
+  current.rotation = ((current.rotation ?? 0) + by + 360) % 360;
+  current.legend = undefined;
+  await showFloor(current);
+  markDirty();
+}
+$("rotateLeft").addEventListener("click", () => rotate(-90));
+$("rotateRight").addEventListener("click", () => rotate(90));
 
 addEventListener("dragover", (e) => e.preventDefault());
 addEventListener("drop", (e) => {
@@ -247,6 +257,7 @@ addEventListener("keydown", (e) => {
   else if (e.key === "+" || e.key === "=") viewer.zoomCentre(1.5);
   else if (e.key === "-") viewer.zoomCentre(1 / 1.5);
   else if (e.key === "0") viewer.fit();
+  else if (key === "r") rotate(e.shiftKey ? -90 : 90);
   else if ((e.key === "PageUp" || e.key === "PageDown") && current) { // PageUp = floor above
     const next = floors[floors.indexOf(current) + (e.key === "PageUp" ? 1 : -1)];
     if (next) showFloor(next);
@@ -300,6 +311,7 @@ function showChrome() {
   $("empty").hidden = floors.length > 0;
   $("tabs").hidden = floors.length === 0;
   $("editTools").hidden = floors.length === 0;
+  $("rotateTools").hidden = floors.length === 0;
   $("exportPanel").hidden = floors.length === 0;
 }
 
@@ -325,7 +337,7 @@ function projectState(): ProjectState {
   return {
     categories, opacity: colourKey.opacity, showLegend,
     sources: sources.map((s) => ({ id: s.id, fileName: s.fileName, bytes: s.bytes })),
-    floors: floors.map((f) => ({ name: f.name, source: sources.indexOf(f.src), page: f.page, shapes: f.shapes, labels: f.labels, scale: f.scale, legend: f.legend })),
+    floors: floors.map((f) => ({ name: f.name, source: sources.indexOf(f.src), page: f.page, shapes: f.shapes, labels: f.labels, scale: f.scale, legend: f.legend, rotation: f.rotation })),
   };
 }
 
@@ -339,9 +351,9 @@ async function busy(label: string, job: () => Promise<void>) {
 
 $("exportPdf").addEventListener("click", () => busy("Exporting PDF", async () => {
   const input: ExportFloor[] = await Promise.all(floors.map(async (f) => {
-    const vp = (await f.src.doc.getPage(f.page)).getViewport({ scale: 1 });
+    const page = await f.src.doc.getPage(f.page), vp = page.getViewport({ scale: 1, rotation: (page.rotate + (f.rotation ?? 0)) % 360 });
     return {
-      bytes: f.src.bytes, page: f.page, pdfToView: vp.transform as Mat, shapes: f.shapes,
+      bytes: f.src.bytes, page: f.page, pdfToView: vp.transform as Mat, rotation: f.rotation ?? 0, shapes: f.shapes,
       legend: showLegend ? (f.legend ??= defaultLegend(vp.width, vp.height)) : null,
     };
   }));
@@ -386,7 +398,7 @@ async function loadProject(p: ProjectState, currentIndex = 0) {
     return { ...s, task, doc: await task.promise };
   }));
   for (const src of new Set(floors.map((f) => f.src))) src.task.destroy();
-  floors = p.floors.map((f) => ({ name: f.name, src: sources[f.source], page: f.page, shapes: f.shapes, labels: f.labels, scale: f.scale, legend: f.legend }));
+  floors = p.floors.map((f) => ({ name: f.name, src: sources[f.source], page: f.page, shapes: f.shapes, labels: f.labels, scale: f.scale, legend: f.legend, rotation: f.rotation }));
   categories.splice(0, categories.length, ...p.categories);
   colourKey.reload();
   colourKey.setOpacity(p.opacity);

@@ -34,7 +34,7 @@ function square(d: Door): Door {
  * arcs and leaves, which aren't walls. Doors whose closed side can't be told (no leaf, or a line at both ends) are
  * skipped: their arcs stay in as barriers.
  */
-export function findDoors(segs: Seg[], minR: number, maxR: number): { doors: Door[]; ops: Set<number> } {
+export function findDoors(segs: Seg[], minR: number, maxR: number): { doors: Door[]; ops: Set<number>; radii: number[] } {
   // Chain short segments that meet end to end (arcs are drawn as separate 2-point paths).
   const short = segs.filter((s) => len(sub(s.b, s.a)) <= 0.5 * maxR);
   const at = new Map<string, number[]>();
@@ -92,7 +92,7 @@ export function findDoors(segs: Seg[], minR: number, maxR: number): { doors: Doo
   // One swing can be drawn in pieces (gaps where other lines cross it): merge arcs sharing centre and radius.
   const angle = (a: Pt, b: Pt) => Math.abs(Math.atan2(cross(a, b), dot(a, b)));
   const taken = new Uint8Array(pieces.length);
-  const swings: { c: Pt; e1: Pt; e2: Pt; tip: Pt; pick: string; leaf: Seg[]; idx: number[] }[] = [];
+  const swings: { c: Pt; e1: Pt; e2: Pt; tip: Pt; pick: string; leaf: Seg[]; idx: number[]; r: number }[] = [];
   pieces.forEach((a0, n) => {
     if (taken[n]) return;
     // short pieces fit loosely (coordinates are rounded): generous match, then refit on all the points
@@ -125,14 +125,16 @@ export function findDoors(segs: Seg[], minR: number, maxR: number): { doors: Doo
     const ranked = [...votes].sort((x, y) => y[1] - x[1]);
     const pick = !ranked.length || ranked[1]?.[1] === ranked[0][1] ? "" : ranked[0][0];
     const l = leaf.find((s) => Math.abs(angle(out(s), u) - angle(out(s), v)) < 0.35), tip: Pt = l ? [c[0] + out(l)[0], c[1] + out(l)[1]] : e1;
-    swings.push({ c, e1, e2, tip, pick, leaf, idx });
+    swings.push({ c, e1, e2, tip, pick, leaf, idx, r });
   });
 
-  for (const { c, e1, e2, tip, pick, leaf, idx } of swings) {
+  // An operator can draw more than the door (a leaf drawn as part of the wall outline): only door-sized ones go.
+  const opLen = new Map<number, number>();
+  for (const s of segs) opLen.set(s.i, (opLen.get(s.i) ?? 0) + len(sub(s.b, s.a)));
+  for (const { c, e1, e2, tip, pick, leaf, idx, r } of swings) {
     if (!pick) continue;
     doors.push(square({ h: c, e: pick === "both" ? tip : pick === "u" ? e1 : e2 }));
-    for (const j of idx) ops.add(short[j].i);
-    for (const s of leaf) ops.add(s.i);
+    for (const i of [...idx.map((j) => short[j].i), ...leaf.map((s) => s.i)]) if (opLen.get(i)! <= 3.3 * r) ops.add(i);
   }
-  return { doors, ops };
+  return { doors, ops, radii: swings.filter((s) => s.leaf.length).map((s) => s.r) }; // radii: swings with a leaf (real doors)
 }

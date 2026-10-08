@@ -24,13 +24,22 @@ where the door sits and the swing belongs to the room it opens into. Other openi
 needed) are closed along the wall line. Rooms come out as square, wall-to-wall shapes: fire exit signs, call points,
 circled symbols, sanitaryware and small wall-mounted boxes don't cut notches or split rooms. If a room number sits
 on a wall, the room name's position is used instead. Open-plan areas shared by several labels are left for you to draw.
+Drawings that mix two numbering schemes (e.g. "C4223" in an old wing, "6.4.087" in a new one) get both; names over
+two lines ("STAFF" / "LOUNGE") are joined.
 Labelled rooms that could not be traced show as pulsing red markers; the *Missing* button jumps to each.
 Tap a marker (or choose *Draw room*) and draw the room around it: it takes the marker's number and name (all of them,
 joined with "+", if you draw one room around several). A marker inside any room counts as placed.
 
 **Find room (Ctrl+F, top of the panel):** searches room numbers, names and notes on every floor, including labels
 not traced yet. Pick a result to jump to its floor, select the room and zoom to it.
-Works on vector PDFs with text; scanned drawings have no text, so their rooms are drawn by hand.
+Works on vector PDFs. Many CAD plans printed to PDF have no text layer: every letter is a filled shape. The app reads
+those shapes itself (matched against Arial, in any of the four orientations), so their room numbers and names work
+the same. When the drawing scale isn't in the text, it is worked out from the door swings. Scanned drawings have no
+vectors at all, so their rooms are drawn by hand.
+
+**Rotate (⟲ ⟳ in the toolbar, R / Shift+R):** turns the current floor 90° at a time, e.g. a plan drawn sideways on
+the sheet. Rooms stay put on the drawing; the key moves back to the top-left. The rotation is saved, and the exported
+PDF page is turned the same way.
 
 **Colour key (right panel, *Key* button on phones):** *+ Add lighting type*, name it and pick a colour. Tick a type
 to paint: every room you tap (or draw) gets it; *Select only* or Esc stops. Counts show rooms per type across all
@@ -86,7 +95,9 @@ Current Chrome, Edge, Firefox, Safari (desktop and iPad). Uses the pdf.js legacy
 - `src/viewer.ts` – pan/zoom, low-res base render + sharp re-render of the visible area on zoom settle, SVG overlay
 - `src/shapes.ts` – room shape model and per-floor undo/redo
 - `src/editor.ts` – Select and Draw room tools, room/handle rendering
-- `src/rooms.ts` – automatic room detection: room labels as seeds, filtered barrier renders, worker call
+- `src/rooms.ts` – automatic room detection: page to detection input, worker call, results back to PDF space
+- `src/detect.ts` – which vector paths are walls/lines, rasterised directly (not by pdf.js), labels, scale from doors
+- `src/ocr.ts` – reading text drawn as filled shapes (no text layer)
 - `src/doors.ts` – door symbols (arc + leaf) to doorway lines
 - `src/roomLabels.ts` – room numbers/names and drawing scale from PDF text
 - `src/segment.ts`, `src/segment.worker.ts` – flood fill, doorway bridging, outline tracing

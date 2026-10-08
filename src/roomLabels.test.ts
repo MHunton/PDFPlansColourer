@@ -20,6 +20,16 @@ test("room numbers by dominant pattern, name from the line below", () => {
   assert.deepEqual(labels[0].at.map((v) => Math.round(v * 10) / 10), [987.1, 1435.5]);
 });
 
+test("second numbering scheme, codes printed with spaces, names over two lines, areas aren't names", () => {
+  const items: TextItem[] = [];
+  for (let k = 0; k < 12; k++) items.push(t(`4.3.0${10 + k}`, 100 * k, 0), t("office", 100 * k + 7, 0, 15), t("12.50 m²", 100 * k + 14, 0, 18));
+  for (let k = 0; k < 10; k++) items.push(t(`D 3 2${10 + k}`, 100 * k, 500), t("STAFF", 100 * k + 7, 500, 15), t("LOUNGE", 100 * k + 14, 500, 18));
+  const labels = roomLabels(items);
+  assert.equal(labels.length, 22);
+  assert.deepEqual([labels[0].no, labels[0].name], ["4.3.010", "office"]);
+  assert.deepEqual([labels[12].no, labels[12].name], ["D3210", "STAFF LOUNGE"]);
+});
+
 test("drawingScale", () => {
   assert.equal(drawingScale("Scale 1 : 200 … Level 3 - Fire Strategy 1 : 200 … detail 1:20"), 200);
   assert.equal(drawingScale("no scale here"), null);

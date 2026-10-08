@@ -23,6 +23,14 @@ test("door: hinge to closed end is the doorway; arc and leaf are marked", () => 
   for (const s of frame) assert.ok(!ops.has(s.i), "frame kept");
 });
 
+test("leaf drawn as part of a wall outline: door found, the wall's operator kept", () => {
+  const wall: Seg[] = [{ i: 400, a: [1240, 1284.5], b: [1280.5, 1284.5] }, { i: 400, a: [1280.5, 1284.5], b: [1280.5, 1271.3] }];
+  const { doors, ops } = findDoors([...arc, ...wall, ...frame], 0.4 * ptPerM, 1.6 * ptPerM);
+  assert.equal(doors.length, 1);
+  assert.ok(!ops.has(400), "wall kept");
+  for (const s of arc) assert.ok(ops.has(s.i), "arc op marked");
+});
+
 test("no leaf, or a straight polyline: no door", () => {
   assert.equal(findDoors(arc, 0.4 * ptPerM, 1.6 * ptPerM).doors.length, 0);
   const line = polyline(0, [[0, 0], [3, 0], [6, 0], [9, 0], [12, 0]]);

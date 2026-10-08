@@ -13,11 +13,11 @@ export interface Source {
 }
 /**
  * `labels`/`scale`: room labels and drawing scale (e.g. 200 for 1:200) found by room detection.
- * `legend`: where the colour key sits on this floor (view pt).
+ * `legend`: where the colour key sits on this floor (view pt). `rotation`: degrees clockwise the plan is turned in the app.
  */
 export interface Floor {
   name: string; src: Source; page: number; shapes: Shape[];
-  labels?: RoomLabel[]; scale?: number | null; legend?: LegendState;
+  labels?: RoomLabel[]; scale?: number | null; legend?: LegendState; rotation?: number;
 }
 
 const THUMB = 120; // CSS px, longest side
@@ -78,11 +78,11 @@ export function editFloors(rows: Floor[], fresh: Set<Floor>): Promise<Floor[] | 
         if (!it.name.value) it.name.value = guessFloorName(text, it.floor.src.fileName);
         checkDuplicates();
       }
-      const vp = page.getViewport({ scale: 1 });
+      const rotation = (page.rotate + (it.floor.rotation ?? 0)) % 360, vp = page.getViewport({ scale: 1, rotation });
       const s = THUMB / Math.max(vp.width, vp.height);
       it.canvas.style.width = `${vp.width * s}px`;
       it.canvas.style.height = `${vp.height * s}px`;
-      await renderRegion(page, it.canvas, s * devicePixelRatio, 0, 0, vp.width, vp.height).done;
+      await renderRegion(page, it.canvas, s * devicePixelRatio, 0, 0, vp.width, vp.height, rotation).done;
     }
   })().catch(console.error);
 
